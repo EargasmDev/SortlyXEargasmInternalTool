@@ -13,20 +13,16 @@ export default function App() {
   const loadJobs = async () => {
     try {
       const res = await api.get('/job/list/all')
-      const updatedJobs = res.data
-      setJobs(updatedJobs)
+      setJobs(res.data)
 
       // Keep selected job if it still exists
-      if (selectedJob) {
-        const stillExists = updatedJobs.find(j => j.id === selectedJob.id)
-        if (stillExists) {
-          setSelectedJob(stillExists)
-        } else {
-          // if deleted or missing, clear selection
-          setSelectedJob(null)
-        }
+      if (res.data.length && !selectedJob) {
+        setSelectedJob(res.data[0])
+      } else if (selectedJob) {
+        const stillExists = res.data.find(j => j.name === selectedJob.name)
+        if (!stillExists) setSelectedJob(null)
+        else setSelectedJob(stillExists)
       }
-      // Do NOT auto-select first job anymore
     } catch (err) {
       console.error('Error loading jobs:', err)
     }
@@ -37,11 +33,11 @@ export default function App() {
     loadJobs()
   }, [])
 
-  // Auto-refresh every 10 seconds
+  // 🔁 Auto-refresh every 10 seconds
   useEffect(() => {
-    const interval = setInterval(loadJobs, 10000)
+    const interval = setInterval(loadJobs, 10000) // 10 seconds
     return () => clearInterval(interval)
-  }, [selectedJob])
+  }, []) // empty deps = always running
 
   return (
     <div className="min-h-screen bg-gray-50 py-10 px-6">
