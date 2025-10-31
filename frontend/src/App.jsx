@@ -1,46 +1,45 @@
-import { useEffect, useState } from "react";
-import { api } from "./api";
-import JobCreator from "./components/JobCreator";
-import JobViewer from "./components/JobViewer";
-import ScanSimulator from "./components/ScanSimulator";
-import ItemEditor from "./components/ItemEditor";
+import { useEffect, useState } from 'react'
+import { api } from './api'
+import JobCreator from './components/JobCreator'
+import JobViewer from './components/JobViewer'
+import ScanSimulator from './components/ScanSimulator'
+import ItemEditor from './components/ItemEditor'
 
 export default function App() {
-  const [jobs, setJobs] = useState([]);
-  const [selectedJob, setSelectedJob] = useState(null);
-  const [lastUpdated, setLastUpdated] = useState(Date.now());
+  const [jobs, setJobs] = useState([])
+  const [selectedJob, setSelectedJob] = useState(null)
 
+  // Fetch jobs from backend
   const loadJobs = async () => {
     try {
-      const res = await api.get("/job/list/all");
-      setJobs(res.data);
+      const res = await api.get('/job/list/all')
+      const updatedJobs = res.data
+      setJobs(updatedJobs)
 
-      // ✅ only update if the current selected job no longer exists
+      // ✅ Preserve selected job if still exists in updated data
       if (selectedJob) {
-        const updated = res.data.find((j) => j.id === selectedJob.id);
-        if (updated) {
-          // merge refreshed data without resetting selection
-          setSelectedJob({ ...selectedJob, ...updated });
+        const stillExists = updatedJobs.find(j => j.id === selectedJob.id)
+        if (stillExists) {
+          setSelectedJob(stillExists)
         } else {
-          setSelectedJob(null);
+          setSelectedJob(null)
         }
       }
-
-      setLastUpdated(Date.now());
     } catch (err) {
-      console.error("Error loading jobs:", err);
+      console.error('Error loading jobs:', err)
     }
-  };
+  }
 
+  // Initial load
   useEffect(() => {
-    loadJobs();
-  }, []);
+    loadJobs()
+  }, [])
 
-  // ✅ poll every 60s instead of 5s (reduce Sortly rate-limit pressure)
+  // ✅ Auto-refresh every 10 seconds (can increase to 30s if needed)
   useEffect(() => {
-    const interval = setInterval(loadJobs, 60000);
-    return () => clearInterval(interval);
-  }, [selectedJob]);
+    const interval = setInterval(loadJobs, 10000)
+    return () => clearInterval(interval)
+  }, [selectedJob])
 
   return (
     <div className="min-h-screen bg-gray-50 py-10 px-6">
@@ -74,14 +73,9 @@ export default function App() {
 
         {/* Job Viewer */}
         <div className="bg-white shadow-md rounded-2xl p-6 border border-gray-200 md:col-span-2">
-          <JobViewer
-            jobs={jobs}
-            onSelect={(job) => setSelectedJob(job)}
-            onRefresh={loadJobs}
-          />
+          <JobViewer jobs={jobs} onSelect={setSelectedJob} onRefresh={loadJobs} />
         </div>
       </div>
     </div>
-  );
+  )
 }
-
