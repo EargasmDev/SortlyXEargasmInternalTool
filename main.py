@@ -8,37 +8,35 @@ from app.routes import jobs, scans
 from app.routes import sortly_sync
 from app.routes import sortly_webhook
 
-
-
 # Create all tables (if they don't exist)
 Base.metadata.create_all(bind=engine)
 
 # Initialize FastAPI app
 app = FastAPI(title="Sortly MVP Backend")
 
-# Define allowed frontend origins
+# ✅ Define allowed frontend origins (include local + deployed)
 origins = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173"
+    "http://localhost:5173",                  # local dev
+    "http://127.0.0.1:5173",                  # alternate local dev
+    "https://eargasm-picklist.vercel.app",    # live Vercel frontend (replace if your domain differs)
 ]
 
-# Enable CORS for frontend communication
+# ✅ Enable CORS for both local and deployed frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],     # allows OPTIONS, GET, POST, etc.
+    allow_methods=["*"],     # allows OPTIONS, GET, POST, PUT, DELETE
     allow_headers=["*"],     # allows Content-Type, Authorization, etc.
 )
 
-# Routers
+# ✅ Register all routers
 app.include_router(jobs.router)
 app.include_router(scans.router)
 app.include_router(sortly_sync.router)
 app.include_router(sortly_webhook.router)
 
-
-# Root endpoint
+# ✅ Root endpoint
 @app.get("/")
 def root():
     return {"message": "Sortly MVP backend running successfully"}
