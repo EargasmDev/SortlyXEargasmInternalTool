@@ -1,6 +1,5 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, JSON, ForeignKey, DateTime, func
 from sqlalchemy.orm import relationship
-from datetime import datetime
 from app.database import Base
 
 
@@ -8,40 +7,32 @@ class Job(Base):
     __tablename__ = "jobs"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, unique=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    items = relationship("JobItem", back_populates="job", cascade="all, delete-orphan")
-
-
-class JobItem(Base):
-    __tablename__ = "job_items"
-
-    id = Column(Integer, primary_key=True, index=True)
-    job_id = Column(Integer, ForeignKey("jobs.id"))
     name = Column(String, nullable=False)
-    current_qty = Column(Integer, default=0)
-    job = relationship("Job", back_populates="items")
+    items = Column(JSON, nullable=False)  # { "HF-Blue": 10, "HF-Trans": 8 }
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationship to scans
+    scans = relationship(
+        "Scan",
+        back_populates="job",
+        cascade="all, delete-orphan"
+    )
+
+    def __repr__(self):
+        return f"<Job(id={self.id}, name='{self.name}')>"
 
 
 class Scan(Base):
     __tablename__ = "scans"
 
     id = Column(Integer, primary_key=True, index=True)
-    job_id = Column(Integer, ForeignKey("jobs.id"))
-    scanned_name = Column(String)
-    location = Column(String, nullable=True)
-    scanned_at = Column(DateTime, default=datetime.utcnow)
+    job_id = Column(Integer, ForeignKey("jobs.id", ondelete="CASCADE"))
+    item_name = Column(String, nullable=False)
+    quantity = Column(Integer, default=1)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
 
+    # Back reference to job
+    job = relationship("Job", back_populates="scans")
 
-class SortlyItemState(Base):
-    """
-    Tracks the last known location and timestamp for Sortly items.
-    Used to detect when an item leaves the Warehouse.
-    """
-    __tablename__ = "sortly_item_state"
-
-    id = Column(Integer, primary_key=True, index=True)
-    sortly_id = Column(Integer, unique=True, index=True)
-    name = Column(String)
-    last_location = Column(String)
-    last_seen = Column(DateTime)
+    def __repr__(self):
+        return f"<Scan(id={self.id}, job_id={self.job_id}, item='{self.item_name}', qty={self.quantity})>"
