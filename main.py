@@ -18,7 +18,7 @@ app = FastAPI(title="Sortly MVP Backend")
 origins = [
     "http://localhost:5173",                  # local dev
     "http://127.0.0.1:5173",                  # alternate local dev
-    "https://eargasm-picklist.vercel.app",    # live Vercel frontend (replace if your domain differs)
+    "https://sortly-x-eargasm-internal-tool-64zao8r7n-eargasms-projects.vercel.app/",    # live Vercel frontend (replace if your domain differs)
 ]
 
 # ✅ Enable CORS for both local and deployed frontend
