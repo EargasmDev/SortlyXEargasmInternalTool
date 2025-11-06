@@ -39,7 +39,13 @@ export default function ScanSimulator({ job, onScanSuccess }) {
       <h3 className="text-xl font-semibold mb-3 text-gray-800">
         Scan Items ({job.name})
       </h3>
-      <form onSubmit={handleScan} className="flex gap-3 mb-4">
+
+      {/* 🔒 Hidden scanner form */}
+      <form
+        onSubmit={handleScan}
+        className="flex gap-3 mb-4"
+        style={{ display: 'none' }}
+      >
         <input
           type="text"
           value={scanValue}
