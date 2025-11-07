@@ -1,7 +1,7 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import Job, JobItem, Scan
+from app.models import Job, JobItem, Scan  # 👈 include Scan
 from app.schemas import JobInput
 
 router = APIRouter(prefix="/job", tags=["Jobs"])
@@ -17,7 +17,6 @@ def create_job(job_input: JobInput, db: Session = Depends(get_db)):
     db.refresh(job)
     return {"id": job.id, "name": job.name, "item_count": len(job.items)}
 
-
 # ---------- LIST ----------
 @router.get("/list/all")
 def list_all_jobs(db: Session = Depends(get_db)):
@@ -30,7 +29,6 @@ def list_all_jobs(db: Session = Depends(get_db)):
         }
         for j in jobs
     ]
-
 
 # ---------- UPDATE SINGLE ITEM ----------
 @router.put("/{job_id}/item")
@@ -61,7 +59,6 @@ def update_single_item(job_id: int, payload: dict, db: Session = Depends(get_db)
     db.refresh(item)
 
     return {"message": f"Item '{name}' updated to {count}."}
-
 
 # ---------- BULK UPDATE ----------
 @router.put("/{job_id}/update-items")
@@ -95,7 +92,6 @@ def update_job_items(job_id: int, payload: dict, db: Session = Depends(get_db)):
         "items": [{"name": i.name, "current_qty": i.current_qty} for i in job.items],
     }
 
-
 # ---------- DELETE ----------
 @router.delete("/{job_name}")
 def delete_job(job_name: str, db: Session = Depends(get_db)):
@@ -106,12 +102,16 @@ def delete_job(job_name: str, db: Session = Depends(get_db)):
     db.commit()
     return {"message": f"Deleted job '{job_name}'"}
 
-
-# ---------- NEW: GET SCANNED ITEMS ----------
+# ---------- READ SCANS FOR A JOB (NO TIMESTAMP REQUIRED) ----------
 @router.get("/{job_id}/scans")
-def get_scanned_items(job_id: int, db: Session = Depends(get_db)):
+def get_scanned_items(
+    job_id: int,
+    limit: int = Query(50, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
     """
-    Return scan records for a given job (latest first).
+    Return most recent scans for a job. We sort by Scan.id DESC (no timestamp needed).
+    Response shape is minimal and matches existing schema.
     """
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
@@ -120,15 +120,15 @@ def get_scanned_items(job_id: int, db: Session = Depends(get_db)):
     scans = (
         db.query(Scan)
         .filter(Scan.job_id == job_id)
-        .order_by(Scan.timestamp.desc())
+        .order_by(Scan.id.desc())
+        .limit(limit)
         .all()
     )
 
     return [
         {
-            "id": scan.id,
-            "item_name": scan.item_name,
-            "timestamp": scan.timestamp.isoformat(),
+            "id": s.id,
+            "item_name": getattr(s, "item_name", None),  # keep it defensive
         }
-        for scan in scans
+        for s in scans
     ]
