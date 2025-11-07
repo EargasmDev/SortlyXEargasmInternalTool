@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import Job, JobItem
+from app.models import Job, JobItem, Scan
 from app.schemas import JobInput
 
 router = APIRouter(prefix="/job", tags=["Jobs"])
@@ -106,3 +106,29 @@ def delete_job(job_name: str, db: Session = Depends(get_db)):
     db.commit()
     return {"message": f"Deleted job '{job_name}'"}
 
+
+# ---------- NEW: GET SCANNED ITEMS ----------
+@router.get("/{job_id}/scans")
+def get_scanned_items(job_id: int, db: Session = Depends(get_db)):
+    """
+    Return scan records for a given job (latest first).
+    """
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    scans = (
+        db.query(Scan)
+        .filter(Scan.job_id == job_id)
+        .order_by(Scan.timestamp.desc())
+        .all()
+    )
+
+    return [
+        {
+            "id": scan.id,
+            "item_name": scan.item_name,
+            "timestamp": scan.timestamp.isoformat(),
+        }
+        for scan in scans
+    ]

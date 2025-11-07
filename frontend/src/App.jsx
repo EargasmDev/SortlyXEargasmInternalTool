@@ -4,6 +4,7 @@ import JobCreator from './components/JobCreator'
 import JobViewer from './components/JobViewer'
 import ScanSimulator from './components/ScanSimulator'
 import ItemEditor from './components/ItemEditor'
+import ScannedItems from './components/ScannedItems'
 
 export default function App() {
   const [jobs, setJobs] = useState([])
@@ -53,13 +54,18 @@ export default function App() {
           <JobCreator onCreate={loadJobs} />
         </div>
 
-        {/* Scan Simulator */}
+        {/* Scan Simulator + Scanned Items */}
         <div className="bg-white shadow-md rounded-2xl p-6 border border-gray-200">
           {selectedJob ? (
-            <ScanSimulator job={selectedJob} onScanSuccess={loadJobs} />
+            <>
+              <ScanSimulator job={selectedJob} onScanSuccess={loadJobs} />
+              <div className="mt-6">
+                <ScannedItems job={selectedJob} />
+              </div>
+            </>
           ) : (
             <p className="text-gray-500 text-center py-16">
-              Select a job to begin scanning.
+              Select a Picklist to begin scanning.
             </p>
           )}
         </div>
