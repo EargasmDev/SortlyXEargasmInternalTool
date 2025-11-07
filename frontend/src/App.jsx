@@ -60,7 +60,8 @@ export default function App() {
             <>
               <ScanSimulator job={selectedJob} onScanSuccess={loadJobs} />
               <div className="mt-6">
-                <ScannedItems job={selectedJob} />
+               {/* <ScannedItems job={selectedJob} /> */}
+
               </div>
             </>
           ) : (
