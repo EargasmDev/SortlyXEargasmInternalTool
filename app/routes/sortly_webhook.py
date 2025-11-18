@@ -1,71 +1,121 @@
-from fastapi import APIRouter, Request
-from datetime import datetime
-import json
+from fastapi import APIRouter, Request, Depends
+from sqlalchemy.orm import Session
+import os
+import math
+
 from app.database import get_db
-from app.models import Job, JobItem
+from app.models import Job, JobItem, Scan
 
-router = APIRouter()
+router = APIRouter(prefix="/sortly", tags=["Sortly Webhooks"])
 
-@router.post("/sortly/webhook")
-async def handle_sortly_webhook(request: Request):
+def _norm(s: str | None) -> str:
+    return (s or "").strip().lower()
+
+def _warehouse_names() -> set[str]:
+    # Optional: set multiple names via env, e.g. "Warehouse,Main Warehouse,WH"
+    raw = os.getenv("WAREHOUSE_NAMES", "Warehouse")
+    return {_norm(x) for x in raw.split(",") if x.strip()}
+
+@router.post("/webhook")
+async def sortly_webhook(request: Request, db: Session = Depends(get_db)):
     """
-    Handles Sortly webhooks (transaction.created).
-    Deducts quantity when an item moves out of 'Warehouse'.
+    Handle Sortly transaction webhooks.
+    Deduct item qty when a move crosses the Warehouse boundary
+    — both directions (out of warehouse and into warehouse).
     """
-    raw = await request.body()
+    payload = await request.json()
     try:
-        data = json.loads(raw)
-        print("\n🪵 RAW WEBHOOK PAYLOAD 🪵")
-        print(json.dumps(data, indent=2))
+        evt_type = payload.get("type")
+        body = payload.get("body", {}) or {}
+        verb = _norm(body.get("verb"))
+        node_type = _norm(body.get("node_type"))
+        item_name = body.get("node_name") or ""
+        moved_qty_raw = body.get("moved_quantity")
 
-        # Extract the main payload section (the "body")
-        body = data.get("body", {})
-        event_type = data.get("type", "unknown")
+        try:
+            moved_qty = int(math.floor(float(moved_qty_raw))) if moved_qty_raw is not None else 1
+        except Exception:
+            moved_qty = 1
 
-        # Extract relevant fields
-        verb = body.get("verb", "").lower()
-        item_name = body.get("node_name", "UNKNOWN")
-        old_location = body.get("old_parent_name", "UNKNOWN")
-        new_location = body.get("node_parent_name", "UNKNOWN")
-        moved_qty = float(body.get("moved_quantity", 0))
-        timestamp = data.get("time", datetime.utcnow().isoformat())
+        old_parent_name = body.get("old_parent_name") or ""
+        new_parent_name = body.get("node_parent_name") or ""
+        old_parent_n = _norm(old_parent_name)
+        new_parent_n = _norm(new_parent_name)
 
-        print(f"📦 Webhook received: {event_type} | {item_name} ({verb}) {old_location} → {new_location} ({moved_qty})")
+        wh_names = _warehouse_names()
 
-        # Only handle 'move' verbs that left Warehouse
-        if verb == "move" and old_location == "Warehouse" and new_location != "Warehouse":
-            db = next(get_db())
-            job = db.query(Job).order_by(Job.id.desc()).first()
-            if not job:
-                print("⚠️ No active job found, skipping.")
-                return {"status": "ignored", "reason": "no active job"}
+        print(
+            f"🪵 RAW WEBHOOK: type={evt_type} verb={verb} node_type={node_type} "
+            f"item='{item_name}' old='{old_parent_name}' -> new='{new_parent_name}' qty={moved_qty}"
+        )
 
-            matched_item = None
-            for i in job.items:
-                # Fuzzy match: ignore case and allow substring match
-                if item_name.lower() in i.name.lower() or i.name.lower() in item_name.lower():
-                    matched_item = i
-                    break
+        # Only process item move events
+        if evt_type != "sortly.company.transaction.created" or verb != "move" or node_type != "item":
+            return {"status": "ignored"}
 
-            if matched_item:
-                deduct_amount = max(1, int(moved_qty))
-                matched_item.current_qty = max(0, matched_item.current_qty - deduct_amount)
-                db.commit()
-                print(f"✅ Deducted {deduct_amount} from {matched_item.name}, new qty: {matched_item.current_qty}")
-                return {
-                    "status": "success",
-                    "item": matched_item.name,
-                    "deducted": deduct_amount,
-                    "new_qty": matched_item.current_qty,
-                    "timestamp": timestamp,
-                }
+        # Crosses warehouse boundary?
+        out_of_wh = old_parent_n in wh_names and new_parent_n not in wh_names
+        into_wh  = new_parent_n in wh_names and old_parent_n not in wh_names
 
-            print(f"⚠️ No match found for item {item_name}")
-            return {"status": "skipped", "reason": "no match", "item_name": item_name}
+        if not (out_of_wh or into_wh):
+            print("ℹ️ Not crossing warehouse boundary; no deduction.")
+            return {"status": "ok", "note": "not crossing warehouse boundary"}
 
-        print("ℹ️ Ignored non-move event or movement not from Warehouse.")
-        return {"status": "ignored", "event": event_type, "verb": verb}
+        # Find the most recent job that contains a matching item
+        jobs = db.query(Job).order_by(Job.created_at.desc()).all()
+        target_job = None
+        target_item: JobItem | None = None
+
+        for j in jobs:
+            # Exact match first
+            exact = next((i for i in j.items if _norm(i.name) == _norm(item_name)), None)
+            if exact:
+                target_job = j
+                target_item = exact
+                break
+            # Fallback: loose contains either way
+            loose = next(
+                (i for i in j.items if _norm(item_name) in _norm(i.name) or _norm(i.name) in _norm(item_name)),
+                None
+            )
+            if loose:
+                target_job = j
+                target_item = loose
+                break
+
+        if not target_job or not target_item:
+            print(f"⚠️ No matching job item for '{item_name}'. Nothing deducted.")
+            return {"status": "ok", "note": "no matching job item"}
+
+        # Deduct for both directions (leaving or entering Warehouse)
+        before_qty = target_item.current_qty or 0
+        deduct_by = max(1, moved_qty)
+        new_qty = max(0, before_qty - deduct_by)
+
+        # Log a scan row for audit (optional but keeps history consistent)
+        db.add(Scan(job_id=target_job.id, item_name=target_item.name))
+
+        target_item.current_qty = new_qty
+        db.commit()
+        db.refresh(target_item)
+
+        direction = "OUT_OF_WAREHOUSE" if out_of_wh else "INTO_WAREHOUSE"
+        print(
+            f"✅ DEDUCT ({direction}): '{target_item.name}' in job '{target_job.name}' "
+            f"{before_qty} -> {new_qty} (−{deduct_by})"
+        )
+
+        return {
+            "status": "ok",
+            "job_id": target_job.id,
+            "job_name": target_job.name,
+            "item": target_item.name,
+            "direction": direction,
+            "qty_before": before_qty,
+            "qty_after": new_qty,
+            "deducted": deduct_by,
+        }
 
     except Exception as e:
-        print(f"❌ Webhook error: {e}")
-        return {"status": "error", "message": str(e)}
+        print(f"❌ Webhook processing error: {e}")
+        return {"status": "error", "detail": str(e)}
