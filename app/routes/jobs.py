@@ -93,7 +93,7 @@ def update_job_items(job_id: int, payload: dict, db: Session = Depends(get_db)):
     }
 
 # ---------- DELETE ----------
-@router.delete("/{job_name}")
+@router.delete("/{job_name:path}")
 def delete_job(job_name: str, db: Session = Depends(get_db)):
     job = db.query(Job).filter(Job.name == job_name).first()
     if not job:
